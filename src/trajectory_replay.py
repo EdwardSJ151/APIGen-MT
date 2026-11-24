@@ -124,8 +124,18 @@ def verify_trajectory_replay(
     manager: object,
     trajectory: Sequence[TrajectoryStep],
     initial_state: StateSnapshot | None = None,
+    *,
+    exact: bool = False,
 ) -> DeterministicReplayResult:
-    """Replay every available Python call and compare outputs and snapshots."""
+    """Replay calls and compare outputs and snapshots.
+
+    Exact mode verifies fully resolved JSON from executable product environments.
+    """
+    def comparable(value: object) -> object:
+        if exact:
+            return json.dumps(value, sort_keys=True, allow_nan=False)
+        return _normalized(value)
+
     if not isinstance(manager, ReplayManager):
         return DeterministicReplayResult(status="unavailable", is_valid=False)
 
@@ -171,25 +181,24 @@ def verify_trajectory_replay(
 
             actual_pre_state = manager.get_api_state()
             if step.pre_state is not None:
-                actual_subset = _state_subset(actual_pre_state, step.pre_state)
-                if _normalized(actual_subset) != _normalized(step.pre_state):
+                compared_pre_state = (actual_pre_state if exact else
+                                      _state_subset(actual_pre_state, step.pre_state))
+                if comparable(compared_pre_state) != comparable(step.pre_state):
                     issues.append(
                         ReplayIssue(
                             step_number=step.step_number,
                             tool_name=replayable_calls[0].tool_name,
                             check="pre_state",
                             expected=step.pre_state,
-                            actual=actual_subset,
+                            actual=compared_pre_state,
                         )
                     )
 
             execution_failed = False
             for call in replayable_calls:
                 try:
-                    resolved = _resolve_arguments(
-                        call.arguments,
-                        output_context,
-                    )
+                    resolved = (call.arguments if exact else
+                                _resolve_arguments(call.arguments, output_context))
                     if not is_object_map(resolved):
                         raise TypeError("resolved arguments are not an object")
                     actual_output = manager.invoke_python_tool(
@@ -219,7 +228,7 @@ def verify_trajectory_replay(
                 output_context[f"{call.tool_name}_output"] = copy.deepcopy(
                     actual_output
                 )
-                if _normalized(actual_output) != _normalized(call.output):
+                if comparable(actual_output) != comparable(call.output):
                     issues.append(
                         ReplayIssue(
                             step_number=step.step_number,
@@ -235,15 +244,16 @@ def verify_trajectory_replay(
 
             actual_post_state = manager.get_api_state()
             if step.post_state is not None:
-                actual_subset = _state_subset(actual_post_state, step.post_state)
-                if _normalized(actual_subset) != _normalized(step.post_state):
+                compared_post_state = (actual_post_state if exact else
+                                       _state_subset(actual_post_state, step.post_state))
+                if comparable(compared_post_state) != comparable(step.post_state):
                     issues.append(
                         ReplayIssue(
                             step_number=step.step_number,
                             tool_name=replayable_calls[-1].tool_name,
                             check="post_state",
                             expected=step.post_state,
-                            actual=actual_subset,
+                            actual=compared_post_state,
                         )
                     )
         final_state_digest = _digest(manager.get_api_state())

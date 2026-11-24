@@ -162,3 +162,56 @@ If you use concepts or code derived from this simulation or the original paper, 
 ## License
 
 The original APIGen-MT paper and associated resources are under the [CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/). This implementation attempts to simulate the described concepts.
+
+## APIGen-MT on executable product environments
+
+Generate verified conversations and Qwen3.5-4B SFT rows through the independent
+blueprint and rollout stages described in [APIGen-MT §§3–4 and Appendix E](https://proceedings.neurips.cc/paper_files/paper/2025/file/5e3661f7fe4c8ac5652d62eb3d3c96ea-Paper-Datasets_and_Benchmarks_Track.pdf).
+
+```sh
+uv sync --locked
+# Set STRATA_CHAT_URL and STRATA_API_KEY in the environment or a local .env.
+uv run python main.py apigen-mt \
+  --manifest examples/commerce-pilot.json --output runs/commerce-pilot --rounds 9
+```
+
+Set `STRATA_CHAT_URL` to the full OpenAI-compatible chat completions URL.
+Teacher requests use `model=strata`. For recovery collection set
+`STUDENT_CHAT_URL` to the student's full completions URL and, if needed,
+`STUDENT_MODEL` and `STUDENT_API_KEY`. Recovery uses an unchanged 4B student to
+generate the failure and a teacher to continue from its actual tool feedback.
+The pilot uses three independently sampled teacher reviews.
+
+The `examples/` directory holds sample run configurations. The commerce pilot
+uses the executable commerce fixture from the sibling `multistep-tool` checkout.
+The manifest’s `examples` field supplies few-shot blueprints to the writer.
+Generated data goes to the requested output directory, such as `runs/`.
+
+The manifest specifies the Python import root, held-out product families and worlds.
+Each world names a local factory (`module:callable`), optional fixture JSON and
+`factory_args`, a stable id, seed, family, policies, scenario kinds, personas,
+grounded records, and documented API dependency edges. Paths are relative to the
+manifest. The factory returns the project's environment interface (`reset`,
+`tool_specs`, `clone`, `execute`, `state_snapshot`, `check_goal`, `check_policy`).
+Tool specs carry `name`, `description`, `parameters` and `class` (`read` or
+`write`). Execution returns an object with a boolean `ok`. Goal and policy
+checks return objects with a boolean `passed`. Use domain policies to specify
+user authorization and add a consent rule for tools that take the user's own
+words as an argument. Add output examples when tools return nested data.
+
+Each round tries one new blueprint per world and cycles through that world's
+scenario kinds. A blueprint must pass reference execution and majority review
+before it can seed a rollout or enter the few-shot example pool. Each attempt
+uses a fresh clone. Output requires passing effect, replay, policy and
+user-facing answer checks. Blueprint evidence uses JSON Pointers into tool
+results. Use `{"$ref":"1#/result/authorization_token"}` to bind a reference
+argument to the first action's output.
+
+The output directory must be new. `blueprints.jsonl` and `episodes.jsonl`
+contain private provenance and verification data. `rejections.jsonl` records
+failures. `summary.json` reports yield, calls, dialogue depth and model usage.
+`sft.jsonl` contains conversational `prompt`, `completion`, and `tools` fields.
+Render with the Qwen3.5-4B chat template using `enable_thinking=false` and use completion-only loss. Each row
+has one assistant target. Its full prefix includes any prior student actions
+and tool observations with zero loss. `kind` and `target_type` support later
+B1/B2 data weighting. The exporter produces examples and metadata for SFT.

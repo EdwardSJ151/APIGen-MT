@@ -1,0 +1,233 @@
+{
+  "python_path": "../../../multistep-tool",
+  "holdout_families": [],
+  "worlds": [
+    {
+      "id": "commerce-paid",
+      "family": "commerce",
+      "seed": 107,
+      "factory": "src.data.envs.commerce_v1:CommerceV1Environment",
+      "fixture": "../../../multistep-tool/src/data/envs/fixtures/commerce_v1/orders_paid.json",
+      "policies": [
+        "The customer must explicitly approve a cancellation or refund before it can be authorized. Relay the customer's exact words to the authorization tool.",
+        "Authorization tokens are single use and apply only to the approved order and operation.",
+        "Refunds require an earlier cancellation and separate user approval. A cancellation alone does not refund the payment.",
+        "Shipped orders cannot be cancelled."
+      ],
+      "task_rules": [
+        "Use natural customer requests. State amounts in cents in the answer evidence.",
+        "Ground requested order facts in this fixture. Do not reveal facts the customer wants the assistant to look up."
+      ],
+      "records": [
+        {
+          "customer_id": "C-2001",
+          "order_id": "O-1001",
+          "status": "confirmed",
+          "amount_cents": 14900,
+          "payment_status": "captured",
+          "refund_count": 0
+        }
+      ],
+      "output_examples": {
+        "get_order": {
+          "ok": true,
+          "result": {
+            "order": {
+              "order_id": "O-1001",
+              "status": "confirmed"
+            }
+          }
+        },
+        "get_payment": {
+          "ok": true,
+          "result": {
+            "payment": {
+              "amount_cents": 14900,
+              "status": "captured"
+            }
+          }
+        },
+        "get_shipment": {
+          "ok": false,
+          "error": {
+            "type": "not_found",
+            "message": "no shipment for order O-1001"
+          }
+        },
+        "list_refunds": {
+          "ok": true,
+          "result": {
+            "refunds": []
+          }
+        },
+        "request_customer_authorization": {
+          "ok": true,
+          "result": {
+            "authorization_token": "<returned token>"
+          }
+        },
+        "lookup_customer": {
+          "ok": true,
+          "result": {
+            "customers": [
+              {
+                "customer_id": "C-2001"
+              }
+            ]
+          }
+        },
+        "list_orders": {
+          "ok": true,
+          "result": {
+            "orders": [
+              {
+                "order_id": "O-1001",
+                "status": "confirmed"
+              }
+            ]
+          }
+        }
+      },
+      "personas": [
+        "A careful customer who knows their order number and wants a clear answer."
+      ],
+      "edges": [
+        [
+          "lookup_customer",
+          "list_orders"
+        ],
+        [
+          "list_orders",
+          "get_order"
+        ],
+        [
+          "list_orders",
+          "get_payment"
+        ],
+        [
+          "list_orders",
+          "get_shipment"
+        ],
+        [
+          "list_orders",
+          "request_customer_authorization"
+        ],
+        [
+          "get_order",
+          "request_customer_authorization"
+        ],
+        [
+          "request_customer_authorization",
+          "cancel_order"
+        ],
+        [
+          "request_customer_authorization",
+          "issue_refund"
+        ]
+      ],
+      "examples": [
+        {
+          "tools": [
+            "get_order"
+          ],
+          "task": {
+            "q": "You own order O-1001 and want to know its status.",
+            "a_gt": [],
+            "o_gt": [
+              "Order O-1001 is confirmed."
+            ],
+            "evidence": [
+              {
+                "call": {
+                  "tool": "get_order",
+                  "arguments": {
+                    "order_id": "O-1001"
+                  }
+                },
+                "path": "/result/order/status",
+                "equals": "confirmed",
+                "when": "initial"
+              }
+            ],
+            "goal_spec": {
+              "success": [],
+              "forbidden": []
+            }
+          }
+        },
+        {
+          "tools": [
+            "request_customer_authorization",
+            "cancel_order",
+            "get_payment"
+          ],
+          "task": {
+            "q": "You own O-1001. Ask how much you paid. If the assistant tells you the charge, explicitly approve cancellation without a refund.",
+            "a_gt": [
+              {
+                "tool": "request_customer_authorization",
+                "arguments": {
+                  "order_id": "O-1001",
+                  "action": "cancel",
+                  "user_statement": "I authorize cancellation of order O-1001."
+                }
+              },
+              {
+                "tool": "cancel_order",
+                "arguments": {
+                  "order_id": "O-1001",
+                  "authorization_token": {
+                    "$ref": "1#/result/authorization_token"
+                  }
+                }
+              }
+            ],
+            "o_gt": [
+              "The charge was 14900 cents."
+            ],
+            "evidence": [
+              {
+                "call": {
+                  "tool": "get_payment",
+                  "arguments": {
+                    "order_id": "O-1001"
+                  }
+                },
+                "path": "/result/payment/amount_cents",
+                "equals": 14900,
+                "when": "initial",
+                "answer_forms": [
+                  "$149.00",
+                  "14900 cents",
+                  "14,900 cents",
+                  "149 dollars"
+                ]
+              }
+            ],
+            "goal_spec": {
+              "success": [],
+              "forbidden": []
+            }
+          }
+        }
+      ],
+      "kinds": [
+        "policy",
+        "single_call",
+        "parallel",
+        "clarification",
+        "no_tool",
+        "multi_step",
+        "multi_turn",
+        "infeasible",
+        "recovery"
+      ],
+      "consent": [
+        {
+          "tool": "request_customer_authorization",
+          "argument": "user_statement"
+        }
+      ]
+    }
+  ]
+}

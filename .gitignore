@@ -30,3 +30,6 @@ magnet_tool_extraction/*.jsonl
 magnet_tool_extraction/*.html
 magnet_tool_extraction/*.ipynb
 magnet_tool_extraction/*analysis*
+
+# Generated APIGen-MT datasets and verification records
+/runs/
